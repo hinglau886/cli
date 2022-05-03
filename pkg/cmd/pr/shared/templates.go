@@ -4,10 +4,8 @@ import (
 	"context"
 	"fmt"
 	"net/http"
-	"time"
 
 	"github.com/AlecAivazis/survey/v2"
-	"github.com/cli/cli/v2/api"
 	"github.com/cli/cli/v2/git"
 	"github.com/cli/cli/v2/internal/ghinstance"
 	"github.com/cli/cli/v2/internal/ghrepo"
@@ -110,7 +108,7 @@ func listPullRequestTemplates(httpClient *http.Client, repo ghrepo.Interface) ([
 }
 
 func hasTemplateSupport(httpClient *http.Client, hostname string, isPR bool) (bool, error) {
-	if !ghinstance.IsEnterprise(hostname) {
+	if !ghinstance.IsEnterprise(hostname) || !isPR {
 		return true, nil
 	}
 
@@ -120,11 +118,6 @@ func hasTemplateSupport(httpClient *http.Client, hostname string, isPR bool) (bo
 				Name string
 			} `graphql:"fields(includeDeprecated: true)"`
 		} `graphql:"Repository: __type(name: \"Repository\")"`
-		CreateIssueInput struct {
-			InputFields []struct {
-				Name string
-			}
-		} `graphql:"CreateIssueInput: __type(name: \"CreateIssueInput\")"`
 	}
 
 	gql := graphql.NewClient(ghinstance.GraphQLEndpoint(hostname), httpClient)
@@ -133,29 +126,14 @@ func hasTemplateSupport(httpClient *http.Client, hostname string, isPR bool) (bo
 		return false, err
 	}
 
-	var hasIssueQuerySupport bool
-	var hasIssueMutationSupport bool
-	var hasPullRequestQuerySupport bool
-
 	for _, field := range featureDetection.Repository.Fields {
-		if field.Name == "issueTemplates" {
-			hasIssueQuerySupport = true
-		}
+		//Introduced in GHES 3.2
 		if field.Name == "pullRequestTemplates" {
-			hasPullRequestQuerySupport = true
-		}
-	}
-	for _, field := range featureDetection.CreateIssueInput.InputFields {
-		if field.Name == "issueTemplate" {
-			hasIssueMutationSupport = true
+			return true, nil
 		}
 	}
 
-	if isPR {
-		return hasPullRequestQuerySupport, nil
-	} else {
-		return hasIssueQuerySupport && hasIssueMutationSupport, nil
-	}
+	return false, nil
 }
 
 type Template interface {
@@ -189,11 +167,16 @@ func NewTemplateManager(httpClient *http.Client, repo ghrepo.Interface, dir stri
 	}
 }
 
+func (m *templateManager) SetCachedClient(client *http.Client) {
+	m.cachedClient = client
+}
+
 func (m *templateManager) hasAPI() (bool, error) {
-	if m.cachedClient == nil {
-		m.cachedClient = api.NewCachedClient(m.httpClient, time.Hour*24)
+	client := m.cachedClient
+	if client == nil {
+		client = m.httpClient
 	}
-	return hasTemplateSupport(m.cachedClient, m.repo.RepoHost(), m.isPR)
+	return hasTemplateSupport(client, m.repo.RepoHost(), m.isPR)
 }
 
 func (m *templateManager) HasTemplates() (bool, error) {

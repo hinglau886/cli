@@ -23,22 +23,6 @@ func TestTemplateManager_hasAPI(t *testing.T) {
 	defer tr.Verify(t)
 
 	tr.Register(
-		httpmock.GraphQL(`query IssueTemplates_fields\b`),
-		httpmock.StringResponse(`{"data":{
-			"Repository": {
-				"fields": [
-					{"name": "foo"},
-					{"name": "issueTemplates"}
-				]
-			},
-			"CreateIssueInput": {
-				"inputFields": [
-					{"name": "foo"},
-					{"name": "issueTemplate"}
-				]
-			}
-		}}`))
-	tr.Register(
 		httpmock.GraphQL(`query IssueTemplates\b`),
 		httpmock.StringResponse(`{"data":{"repository":{
 			"issueTemplates": [

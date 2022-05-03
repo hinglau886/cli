@@ -1,7 +1,6 @@
 package api
 
 import (
-	"context"
 	"fmt"
 	"net/http"
 	"strings"
@@ -305,14 +304,14 @@ func determinePullRequestFeatures(httpClient *http.Client, hostname string) (prF
 		} `graphql:"Ref: __type(name: \"Ref\")"`
 	}
 
-	v4 := graphQLClient(httpClient, hostname)
+	client := NewClientFromHTTP(httpClient)
 
 	g := new(errgroup.Group)
 	g.Go(func() error {
-		return v4.QueryNamed(context.Background(), "PullRequest_fields", &featureDetection, nil)
+		return client.Query(hostname, "PullRequest_fields", &featureDetection, nil)
 	})
 	g.Go(func() error {
-		return v4.QueryNamed(context.Background(), "PullRequest_fields2", &featureDetection2, nil)
+		return client.Query(hostname, "PullRequest_fields2", &featureDetection2, nil)
 	})
 
 	err = g.Wait()
@@ -377,11 +376,7 @@ func PullRequestStatus(client *Client, repo ghrepo.Interface, options StatusOpti
 		gr := PullRequestGraphQL(fields.ToSlice())
 		fragments = fmt.Sprintf("fragment pr on PullRequest{%s}fragment prWithReviews on PullRequest{...pr}", gr)
 	} else {
-		var err error
-		fragments, err = pullRequestFragment(client.http, repo.RepoHost())
-		if err != nil {
-			return nil, err
-		}
+		fragments = pullRequestFragment()
 	}
 
 	queryPrefix := `
@@ -508,34 +503,18 @@ func PullRequestStatus(client *Client, repo ghrepo.Interface, options StatusOpti
 	return &payload, nil
 }
 
-func pullRequestFragment(httpClient *http.Client, hostname string) (string, error) {
-	cachedClient := NewCachedClient(httpClient, time.Hour*24)
-	prFeatures, err := determinePullRequestFeatures(cachedClient, hostname)
-	if err != nil {
-		return "", err
-	}
-
+func pullRequestFragment() string {
 	fields := []string{
 		"number", "title", "state", "url", "isDraft", "isCrossRepository",
 		"headRefName", "headRepositoryOwner", "mergeStateStatus",
+		"statusCheckRollup", "requiresStrictStatusChecks",
 	}
-	if prFeatures.HasStatusCheckRollup {
-		fields = append(fields, "statusCheckRollup")
-	}
-	if prFeatures.HasBranchProtectionRule {
-		fields = append(fields, "requiresStrictStatusChecks")
-	}
-
-	var reviewFields []string
-	if prFeatures.HasReviewDecision {
-		reviewFields = append(reviewFields, "reviewDecision", "latestReviews")
-	}
-
+	reviewFields := []string{"reviewDecision", "latestReviews"}
 	fragments := fmt.Sprintf(`
 	fragment pr on PullRequest {%s}
 	fragment prWithReviews on PullRequest {...pr,%s}
 	`, PullRequestGraphQL(fields), PullRequestGraphQL(reviewFields))
-	return fragments, nil
+	return fragments
 }
 
 // CreatePullRequest creates a pull request in a GitHub repository
@@ -639,8 +618,7 @@ func UpdatePullRequestReviews(client *Client, repo ghrepo.Interface, params gith
 		} `graphql:"requestReviews(input: $input)"`
 	}
 	variables := map[string]interface{}{"input": params}
-	gql := graphQLClient(client.http, repo.RepoHost())
-	err := gql.MutateNamed(context.Background(), "PullRequestUpdateRequestReviews", &mutation, variables)
+	err := client.Mutate(repo.RepoHost(), "PullRequestUpdateRequestReviews", &mutation, variables)
 	return err
 }
 
@@ -670,8 +648,8 @@ func PullRequestClose(httpClient *http.Client, repo ghrepo.Interface, prID strin
 		},
 	}
 
-	gql := graphQLClient(httpClient, repo.RepoHost())
-	return gql.MutateNamed(context.Background(), "PullRequestClose", &mutation, variables)
+	client := NewClientFromHTTP(httpClient)
+	return client.Mutate(repo.RepoHost(), "PullRequestClose", &mutation, variables)
 }
 
 func PullRequestReopen(httpClient *http.Client, repo ghrepo.Interface, prID string) error {
@@ -689,8 +667,8 @@ func PullRequestReopen(httpClient *http.Client, repo ghrepo.Interface, prID stri
 		},
 	}
 
-	gql := graphQLClient(httpClient, repo.RepoHost())
-	return gql.MutateNamed(context.Background(), "PullRequestReopen", &mutation, variables)
+	client := NewClientFromHTTP(httpClient)
+	return client.Mutate(repo.RepoHost(), "PullRequestReopen", &mutation, variables)
 }
 
 func PullRequestReady(client *Client, repo ghrepo.Interface, pr *PullRequest) error {
@@ -708,8 +686,7 @@ func PullRequestReady(client *Client, repo ghrepo.Interface, pr *PullRequest) er
 		},
 	}
 
-	gql := graphQLClient(client.http, repo.RepoHost())
-	return gql.MutateNamed(context.Background(), "PullRequestReadyForReview", &mutation, variables)
+	return client.Mutate(repo.RepoHost(), "PullRequestReadyForReview", &mutation, variables)
 }
 
 func BranchDeleteRemote(client *Client, repo ghrepo.Interface, branch string) error {

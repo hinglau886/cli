@@ -38,7 +38,7 @@ func TestBranchDeleteRemote(t *testing.T) {
 				httpmock.REST("DELETE", "repos/OWNER/REPO/git/refs/heads/branch"),
 				httpmock.StatusStringResponse(tt.responseStatus, tt.responseBody))
 
-			client := NewClient(ReplaceTripper(http))
+			client := NewTestClient(http)
 			repo, _ := ghrepo.FromFullName("OWNER/REPO")
 
 			err := BranchDeleteRemote(client, repo, "branch")
@@ -142,7 +142,7 @@ func Test_determinePullRequestFeatures(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			fakeHTTP := &httpmock.Registry{}
-			httpClient := NewHTTPClient(ReplaceTripper(fakeHTTP))
+			httpClient := NewTestHTTPClient(fakeHTTP)
 
 			for query, resp := range tt.queryResponse {
 				fakeHTTP.Register(httpmock.GraphQL(query), httpmock.StringResponse(resp))
